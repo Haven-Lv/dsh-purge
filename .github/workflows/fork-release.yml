@@ -1,0 +1,100 @@
+name: Fork release
+
+# 上游 release.yml 把发布任务限定在 kingcharleslzy-ai/dsh-purge：
+#   if: github.repository == 'kingcharleslzy-ai/dsh-purge'
+# 所以在 fork 里补一份等价流程，用 workflow_dispatch 手动触发，
+# 产出与上游同名的 TGZ + SHA256SUMS 并挂到本仓库的 Release 上。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (default: v<package.json version>)'
+        required: false
+        default: ''
+      skip_tests:
+        description: 'Skip the test suite and only pack + smoke test'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            packages/purge-panel/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci --ignore-scripts --legacy-peer-deps
+          npm --prefix packages/purge-panel ci --ignore-scripts --legacy-peer-deps
+
+      - name: Docs and client bundle checks
+        run: |
+          npm run check:docs
+          npm run check:client
+
+      - name: Test suite
+        if: inputs.skip_tests != true
+        run: npm test
+
+      - name: Pack tarball and smoke test
+        run: |
+          set -euo pipefail
+          npm pack --ignore-scripts
+          node scripts/smoke.mjs
+
+      - name: Build verified release assets
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          name="$(node -p "require('./package.json').name")"
+          test "$name" = "dsh-purge-community"
+          asset="${name}-${version}.tgz"
+          test -f "$asset"
+          test "$(head -n 1 release-notes.md)" = "# $version"
+          notes="docs/releases/$version.md"
+          test "$(head -n 1 "$notes")" = "# $version"
+          cp "$asset" dsh-purge-community.tgz
+          sha256sum "$asset" dsh-purge-community.tgz > SHA256SUMS.txt
+          {
+            echo "tag=v$version"
+            echo "asset=$asset"
+          } >> "$GITHUB_OUTPUT"
+        id: assets
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          tag="${INPUT_TAG:-}"
+          if [ -z "$tag" ]; then tag="v$version"; fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "dsh-purge-community-$version.tgz" dsh-purge-community.tgz SHA256SUMS.txt --clobber
+          else
+            gh release create "$tag" "dsh-purge-community-$version.tgz" dsh-purge-community.tgz SHA256SUMS.txt \
+              --target "$GITHUB_SHA" \
+              --title "dsh-purge Community $version (fork)" \
+              --notes-file "docs/releases/$version.md"
+          fi
+          gh release view "$tag" --json url,assets --jq '{url:.url, assets:[.assets[].name]}'
