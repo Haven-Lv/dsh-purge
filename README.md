@@ -15,6 +15,20 @@
 
 **原项目与作者**：小杨 / YuJunZhiXue 是历史上游 dsh-purge 的作者署名。本仓库独立维护社区版，保留上游版权和 MIT 许可证。历史署名不代表对当前同名 GitHub 账号身份的核实。详见[署名记录](NOTICE.md)与[许可证](LICENSE)。
 
+**本仓库的来历与适配范围**：本仓库 fork 自社区版主仓 [kingcharleslzy-ai/dsh-purge](https://github.com/kingcharleslzy-ai/dsh-purge)，并合入上游 PR [#283](https://github.com/kingcharleslzy-ai/dsh-purge/pull/283)（作者 [@striver8](https://github.com/striver8)，源分支 `fix/dsh-022-rc5-compat`），据此适配 **DSH Desktop 0.2.2-rc.5** 的桌面壳布局：
+
+- 壳包名 `@deepseek-ai/dsh-desktop`、安装根就是 `resources` 本身；进程从 `app.asar` 内的 `dsh/node_modules/@deepseek-ai/…` 启动时不再退成「未定位」；
+- `resources/app/node_modules/@deepseek-ai`（壳自己的依赖目录，没有 `dsh-agent-instructions/lib`）不再被误当成插件根，会继续找到 `resources/app/dsh/node_modules/@deepseek-ai`；
+- `resources/runtime` 为空（rc.5 桌面不再随附官方 pnpm）时跳过 `app/runtime` 链接，不再用 `missing_runtime` 阻断换包；目录存在但残缺仍按失败处理。
+
+相对上游 PR 的改动，本仓库额外补了三处，否则 Release 构建不过：
+
+1. **重建 `client.js`**：PR 把版本改到 1.7.21，但既有的社区 bundle 内嵌了版本常量却没重新生成，`npm run check:client` 会直接判定 stale；
+2. **收紧 `diagnosticHost` 的归档映射**：只有真正的 `app.asar` 才重映射到解包目标，`app.asar.unpacked` 与 `app` 这类物理路径原样返回，恢复 `test/instance.test.mjs` 的 #40「显式物理路径永不重定向」；
+3. **新增 `.github/workflows/fork-release.yml`**：上游 `release.yml` 带 `github.repository == 'kingcharleslzy-ai/dsh-purge'` 限定，在 fork 里不会发布，也缺少 `workflow_dispatch`；这份工作流手动触发同一套测试 → 打包 → smoke → Release 流程。
+
+0.2.2-rc.5 的**宿主补丁锚点尚未逐条回归**，所以 `QUALIFIED_HOST_VERSIONS` 与 `package.json` 的 `dshReleases` 保持不动，`selfcheck` 对 rc.5 仍标「未验证」——先跑 `diagnose`。可直接安装的产物见 [本仓库 Release v1.7.21](https://github.com/Haven-Lv/dsh-purge/releases/tag/v1.7.21)（`dsh-purge-community-1.7.21.tgz`）。
+
 [让 AI 安装或自己安装](#安装)
 
 </div>
@@ -68,6 +82,8 @@ dsh-purge Community 是一个跑在你自己机器上的 Harness 附加组件。
 修复独立安装器只显示 `fetch failed` 的问题：分阶段诊断、有限重试和系统 curl 备用下载，继续严格校验官方来源、证书和 SHA256。下载失败不触碰现有安装。[发行说明](docs/releases/1.6.48.md) · [配置与验收](docs/maintenance-issue-52.md)
 
 ## 安装
+
+> **本仓库是 fork**：实际可安装的产物在 [本仓库 Release](https://github.com/Haven-Lv/dsh-purge/releases)。下面所有 `kingcharleslzy-ai/dsh-purge` 的**发行包地址**换成 `Haven-Lv/dsh-purge` 即可；市场索引 `kingcharleslzy-ai.github.io/dsh-purge/index.json` 仍指向上游发行，本 fork 不托管市场索引。
 
 **让 AI 安装**，把下面这句话发给能操作本机的 Agent：
 
